@@ -1,3 +1,4 @@
+mod ec;
 mod finite_field;
 
 fn main() {
