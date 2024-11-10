@@ -103,7 +103,30 @@ impl<const A: i32, const B: i32> ops::Add for EPoint<A, B> {
             return EPoint::<A, B>::infinity();
         }
 
-        unimplemented!()
+        // 3. Points are the same point.
+        if self == other {
+            // Special case: If the y coord is 0, the tangent line is vertical since the elliptic
+            // curve is symmetrical wrt. the x axis. This results on a point on the infinity.
+            if self_coords.y == 0 {
+                return Self::infinity();
+            }
+
+            let s = (3 * self_coords.x * self_coords.x + A) / (2 * self_coords.y);
+            let x = s * s - 2 * self_coords.x;
+            let y = s * (self_coords.x - x) - self_coords.y;
+            return Self {
+                p: Some(Coordinates { x, y }),
+            };
+        }
+
+        // 4. The general case, where points are distinct, none is infinity and they are not additive inverses.
+        let s = (other_coords.y - self_coords.y) / (other_coords.x - self_coords.x);
+        let x = s * s - self_coords.x - other_coords.x;
+        let y = s * (self_coords.x - x) - self_coords.y;
+
+        return Self {
+            p: Some(Coordinates { x, y }),
+        };
     }
 }
 
@@ -155,5 +178,25 @@ mod tests {
 
         assert_eq!(a + b, TEST_EC.point_at_ifty());
         assert_eq!(b + a, TEST_EC.point_at_ifty());
+    }
+
+    #[test]
+    fn test_add_same() {
+        let a = TEST_EC.point_at(-1, -1).unwrap();
+        let res = TEST_EC.point_at(18, 77).unwrap();
+        assert_eq!(res, a + a);
+
+        let a = TEST_EC.point_at(-1, 1).unwrap();
+        let res = TEST_EC.point_at(18, -77).unwrap();
+        assert_eq!(res, a + a);
+    }
+
+    #[test]
+    fn test_add() {
+        let a = TEST_EC.point_at(-1, -1).unwrap();
+        let b = TEST_EC.point_at(2, 5).unwrap();
+        let res = TEST_EC.point_at(3, -7).unwrap();
+        assert_eq!(res, a + b);
+        assert_eq!(res, b + a);
     }
 }
