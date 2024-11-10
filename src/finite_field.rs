@@ -47,7 +47,7 @@ impl FieldElement {
             }
             1 => {
                 return Self {
-                    num: 1,
+                    num: self.num,
                     prime: self.prime,
                 }
             }
