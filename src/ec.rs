@@ -103,30 +103,29 @@ impl<const A: i32, const B: i32> ops::Add for EPoint<A, B> {
             return EPoint::<A, B>::infinity();
         }
 
-        // 3. Points are the same point.
-        if self == other {
-            // Special case: If the y coord is 0, the tangent line is vertical since the elliptic
-            // curve is symmetrical wrt. the x axis. This results on a point on the infinity.
-            if self_coords.y == 0 {
-                return Self::infinity();
-            }
+        // 3. Either the points are the same point (P1 = P2) or are different (P1 != P2)
+        // The only difference between the two cases is how we calculate the slope. For P1 == P2,
+        // the line is tangent to the curve. For P1 != P2 the line intersects the curve at both
+        // points. Furthermore, when P1 == P2 and P1.y == 0 the tangent line is vertical and the
+        // resulting point lies at infinity.
+        let s = match self == other {
+            // 3.1. Points are the same point.
+            true => match self_coords.y {
+                // Special case: If the y coord is 0, the tangent line is vertical since the elliptic
+                // curve is symmetrical wrt. the x axis. This results on a point on the infinity.
+                0 => return EPoint::<A, B>::infinity(),
+                _ => (3 * self_coords.x * self_coords.x + A) / (2 * self_coords.y),
+            },
+            // 3.2. Points are different.
+            // The denominator cannot be zero since if P1.x != P2.x is handled at (2) and
+            // P1.x == P2.x is handled at 3.1.
+            false => (other_coords.y - self_coords.y) / (other_coords.x - self_coords.x),
+        };
 
-            let s = (3 * self_coords.x * self_coords.x + A) / (2 * self_coords.y);
-            let x = s * s - 2 * self_coords.x;
-            let y = s * (self_coords.x - x) - self_coords.y;
-            return Self {
-                p: Some(Coordinates { x, y }),
-            };
-        }
-
-        // 4. The general case, where points are distinct, none is infinity and they are not additive inverses.
-        let s = (other_coords.y - self_coords.y) / (other_coords.x - self_coords.x);
         let x = s * s - self_coords.x - other_coords.x;
         let y = s * (self_coords.x - x) - self_coords.y;
 
-        return Self {
-            p: Some(Coordinates { x, y }),
-        };
+        return EPoint::<A, B>::new(x, y);
     }
 }
 
@@ -189,6 +188,14 @@ mod tests {
         let a = TEST_EC.point_at(-1, 1).unwrap();
         let res = TEST_EC.point_at(18, -77).unwrap();
         assert_eq!(res, a + a);
+    }
+
+    #[test]
+    fn test_add_same_at_y0() {
+        let ec = ECurve::<1, 10>::new();
+        let p = ec.point_at(-2, 0);
+
+        assert_eq!(ec.point_at_ifty(), p.unwrap() + p.unwrap());
     }
 
     #[test]
