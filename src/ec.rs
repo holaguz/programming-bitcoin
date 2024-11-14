@@ -1,106 +1,127 @@
 #![allow(dead_code)]
 
-use std::ops;
+use std::ops::{Add, Div, Mul, Sub};
 
-// An elliptic curve defined by the equation y**2 = x**3 + Ax + B
-#[derive(Debug, Eq, PartialEq)]
-pub struct ECurve<const A: i32, const B: i32>;
+use num_bigint::BigUint;
+
+pub trait FieldArithmetic:
+    Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<Output = Self>
+    + Div<Output = Self>
+    // + Rem<Output = Self>
+    + Clone
+    + PartialEq
+    + From<u32>
+{
+}
+
+impl FieldArithmetic for BigUint {}
+impl FieldArithmetic for u32 {}
+impl FieldArithmetic for u64 {}
+impl FieldArithmetic for u128 {}
 
 // Coordinates of a point on the curve
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub struct Coordinates {
-    pub x: i32,
-    pub y: i32,
+pub struct Coordinates<T> {
+    pub x: T,
+    pub y: T,
 }
 
-// A point contained in the elliptic curve defined by A and B
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub struct EPoint<const A: i32, const B: i32> {
-    // None represents the point at infinity
-    p: Option<Coordinates>,
+pub enum PointType<T> {
+    Invalid,
+    Infinity,
+    Point(Coordinates<T>),
 }
 
-impl<const A: i32, const B: i32> EPoint<A, B> {
-    // Constructor for the point at infinity
-    pub const fn infinity() -> Self {
-        Self { p: None }
+// An elliptic curve defined by the equation y**2 = x**3 + Ax + B
+#[derive(Debug, Eq, PartialEq)]
+pub struct EllipticCurve<T> {
+    a: T,
+    b: T,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub struct ECurvePoint<'a, T> {
+    curve: &'a EllipticCurve<T>,
+    p: PointType<T>,
+}
+
+impl<'a, T> EllipticCurve<T>
+where
+    T: FieldArithmetic,
+{
+    pub fn new(a: impl Into<T>, b: impl Into<T>) -> Self {
+        let a = a.into();
+        let b = b.into();
+        Self { a, b }
     }
 
-    // Constructor for a regular point
-    pub const fn new(x: i32, y: i32) -> Self {
-        Self {
-            p: Some(Coordinates { x, y }),
+    pub fn point_at(&'a self, x: impl Into<T>, y: impl Into<T>) -> ECurvePoint<'a, T> {
+        let x = x.into();
+        let y = y.into();
+        match self.contains(&x, &y) {
+            false => ECurvePoint::<'a, T> {
+                curve: self,
+                p: PointType::Invalid,
+            },
+            true => ECurvePoint::<'a, T> {
+                curve: self,
+                p: PointType::Point(Coordinates { x, y }),
+            },
         }
     }
 
-    // Check if this is the point at infinity
-    pub const fn is_infinity(&self) -> bool {
-        self.p.is_none()
-    }
-
-    // Get the coordinates, or None for point at infinity
-    pub const fn coords(&self) -> Option<Coordinates> {
-        self.p
-    }
-}
-
-impl<const A: i32, const B: i32> ECurve<A, B> {
-    pub const fn new() -> Self {
-        ECurve
-    }
-
-    pub const fn point_at(&self, x: i32, y: i32) -> Option<EPoint<A, B>> {
-        if self.contains(x, y) {
-            Some(EPoint {
-                p: Some(Coordinates { x, y }),
-            })
-        } else {
-            None
+    pub fn infinity(&'a self) -> ECurvePoint<'a, T> {
+        ECurvePoint::<'a, T> {
+            curve: self,
+            p: PointType::Infinity,
         }
     }
 
-    pub const fn point_at_ifty(&self) -> EPoint<A, B> {
-        EPoint::<A, B>::infinity()
-    }
-
-    pub const fn a(&self) -> i32 {
-        A
-    }
-
-    pub const fn b(&self) -> i32 {
-        B
-    }
-
-    pub const fn contains(&self, x: i32, y: i32) -> bool {
-        y * y == x * x * x + A * x + B
+    pub fn contains(&self, x: &T, y: &T) -> bool {
+        let lhs = y.clone() * y.clone();
+        let x3 = x.clone() * x.clone() * x.clone();
+        let rhs = x3 + self.a.clone() * x.clone() + self.b.clone();
+        return lhs == rhs;
     }
 }
 
-impl<const A: i32, const B: i32> ops::Add for EPoint<A, B> {
-    type Output = Self;
+impl<'a, T> Add for ECurvePoint<'a, T>
+where
+    T: FieldArithmetic,
+{
+    type Output = ECurvePoint<'a, T>;
 
-    fn add(self, other: Self) -> Self {
-        // ECurve addition is performed by intersecting a line between the two
-        // points to add. There are three main cases: the intersects the curve
-        // at either one, two or three points.
-        // For two intersections, the line is either vertical (one point is at infinity) or tangent to the curve.
+    fn add(self, rhs: Self) -> Self::Output {
+        // Points must be from the same curve
+        assert!(
+            self.curve == rhs.curve,
+            "Cannot add points from different curves"
+        );
 
-        // Handle common cases first:
-        // 1. Either point is an infinity. This point is the identity point, i.e., A + Ifty = A
+        let (p, rhs) = match (&self.p, &rhs.p) {
+            // Infinity is the additive identity
+            (PointType::Infinity, _) => return rhs.clone(),
+            (_, PointType::Infinity) => return self,
 
-        if self.is_infinity() {
-            return other;
-        } else if other.is_infinity() {
-            return self;
-        }
-
-        // At this point (lol) we know that neither point is at infinity.
-        let self_coords = self.coords().unwrap();
-        let other_coords = other.coords().unwrap();
+            // Invalid + anything = Invalid
+            (PointType::Invalid, _) | (_, PointType::Invalid) => {
+                return ECurvePoint {
+                    curve: self.curve,
+                    p: PointType::Invalid,
+                }
+            }
+            (PointType::Point(p1), PointType::Point(p2)) => (p1, p2),
+        };
 
         // 2. Points are additive inverses. The two points have the same x coord but different y.
-        if self_coords.x == other_coords.x && self_coords.y != other_coords.y {
-            return EPoint::<A, B>::infinity();
+        if p.x == rhs.x && p.y != rhs.y {
+            return ECurvePoint {
+                curve: self.curve,
+                p: PointType::Infinity,
+            };
         }
 
         // 3. Either the points are the same point (P1 = P2) or are different (P1 != P2)
@@ -108,102 +129,88 @@ impl<const A: i32, const B: i32> ops::Add for EPoint<A, B> {
         // the line is tangent to the curve. For P1 != P2 the line intersects the curve at both
         // points. Furthermore, when P1 == P2 and P1.y == 0 the tangent line is vertical and the
         // resulting point lies at infinity.
-        let s = match self == other {
+        let s = match p == rhs {
             // 3.1. Points are the same point.
-            true => match self_coords.y {
+            true => {
                 // Special case: If the y coord is 0, the tangent line is vertical since the elliptic
                 // curve is symmetrical wrt. the x axis. This results on a point on the infinity.
-                0 => return EPoint::<A, B>::infinity(),
-                _ => (3 * self_coords.x * self_coords.x + A) / (2 * self_coords.y),
-            },
-            // 3.2. Points are different.
-            // The denominator cannot be zero since if P1.x != P2.x is handled at (2) and
-            // P1.x == P2.x is handled at 3.1.
-            false => (other_coords.y - self_coords.y) / (other_coords.x - self_coords.x),
+                if p.y == 0u32.into() {
+                    return ECurvePoint {
+                        curve: self.curve,
+                        p: PointType::Infinity,
+                    };
+                }
+                let three: T = 3u32.into();
+                let two: T = 2u32.into();
+                (three * p.x.clone() * p.x.clone() + self.curve.a.clone()) / (two * p.y.clone())
+            }
+            false => (rhs.y.clone() - p.y.clone()) / (rhs.x.clone() - p.x.clone()),
         };
 
-        let x = s * s - self_coords.x - other_coords.x;
-        let y = s * (self_coords.x - x) - self_coords.y;
+        let x = s.clone() * s.clone() - p.x.clone() - rhs.x.clone();
+        let y = s * (p.x.clone() - x.clone()) - p.y.clone();
 
-        return EPoint::<A, B>::new(x, y);
+        ECurvePoint {
+            curve: self.curve,
+            p: PointType::Point(Coordinates { x, y }),
+        }
     }
 }
-
-pub const SECP256K1: ECurve<0, 7> = ECurve::new();
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::finite_field::{FieldMod, FiniteField};
 
-    // This is the example elliptic curve used in the book.
-    const TEST_EC: ECurve<5, 7> = ECurve::<5, 7>::new();
+    mod finite_field {
+        use super::*;
 
-    #[test]
-    fn test_ec_new() {
-        _ = ECurve::<0, 7>::new();
-    }
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub struct Field223Mod;
 
-    #[test]
-    fn test_contains() {
-        let contained = TEST_EC.contains(-1, 1);
-        let not_contained = TEST_EC.contains(-1, -2);
+        impl FieldMod for Field223Mod {
+            fn modulus() -> BigUint {
+                223u32.into()
+            }
+        }
 
-        assert!(contained);
-        assert!(!not_contained);
-    }
+        type Field223 = FiniteField<Field223Mod>;
 
-    #[test]
-    fn test_point_at() {
-        let exists = TEST_EC.point_at(-1, 1);
-        let not_exists = TEST_EC.point_at(-1, -2);
+        fn test_curve() -> EllipticCurve<Field223> {
+            EllipticCurve::new(0u32, 7u32)
+        }
 
-        assert!(exists.is_some());
-        assert!(not_exists.is_none());
-    }
+        #[test]
+        fn test_contains() {
+            let c = test_curve();
 
-    #[test]
-    fn test_add_ifty() {
-        let a = TEST_EC.point_at(-1, 1).unwrap();
-        let ifty = TEST_EC.point_at_ifty();
+            let valid: Vec<(Field223, Field223)> = vec![
+                (192u32.into(), 105u32.into()),
+                (17u32.into(), 56u32.into()),
+                (1u32.into(), 193u32.into()),
+            ];
+            let invalid: Vec<(Field223, Field223)> =
+                vec![(200u32.into(), 119u32.into()), (42u32.into(), 99u32.into())];
 
-        assert_eq!(a + ifty, a);
-        assert_eq!(ifty + a, a);
-    }
+            valid.iter().for_each(|(x, y)| {
+                assert!(c.contains(x, y));
+            });
 
-    #[test]
-    fn test_add_ident() {
-        let a = TEST_EC.point_at(-1, 1).unwrap();
-        let b = TEST_EC.point_at(-1, -1).unwrap();
+            invalid.iter().for_each(|(x, y)| {
+                assert!(!c.contains(x, y));
+            });
+        }
 
-        assert_eq!(a + b, TEST_EC.point_at_ifty());
-        assert_eq!(b + a, TEST_EC.point_at_ifty());
-    }
+        #[test]
+        fn test_add() {
+            let c = test_curve();
+            let a = c.point_at(192u32, 105u32);
+            let b = c.point_at(17u32, 56u32);
 
-    #[test]
-    fn test_add_same() {
-        let a = TEST_EC.point_at(-1, -1).unwrap();
-        let res = TEST_EC.point_at(18, 77).unwrap();
-        assert_eq!(res, a + a);
+            let result = c.point_at(170u32, 142u32);
 
-        let a = TEST_EC.point_at(-1, 1).unwrap();
-        let res = TEST_EC.point_at(18, -77).unwrap();
-        assert_eq!(res, a + a);
-    }
-
-    #[test]
-    fn test_add_same_at_y0() {
-        let ec = ECurve::<1, 10>::new();
-        let p = ec.point_at(-2, 0);
-
-        assert_eq!(ec.point_at_ifty(), p.unwrap() + p.unwrap());
-    }
-
-    #[test]
-    fn test_add() {
-        let a = TEST_EC.point_at(-1, -1).unwrap();
-        let b = TEST_EC.point_at(2, 5).unwrap();
-        let res = TEST_EC.point_at(3, -7).unwrap();
-        assert_eq!(res, a + b);
-        assert_eq!(res, b + a);
+            assert_eq!(a.clone() + b.clone(), result);
+            assert_eq!(b + a, result);
+        }
     }
 }

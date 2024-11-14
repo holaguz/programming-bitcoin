@@ -2,134 +2,152 @@
 use std::fmt::Display;
 use std::ops;
 
-// TODO: Can FieldElement be generic over prime to avoid runtime checking the value of prime when
-// doing an operation?
+use crate::ec::FieldArithmetic;
+use num_bigint::BigUint;
 
-// A FieldElement is an element in a finite field.
-#[derive(Debug, Eq, PartialEq)]
-pub struct FieldElement {
-    num: u128,
-    prime: u128,
+pub trait FieldMod: Clone + PartialEq {
+    fn modulus() -> BigUint;
+}
+impl<F: FieldMod> FieldArithmetic for FiniteField<F> {}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct FiniteField<F: FieldMod> {
+    num: BigUint,
+    _phantom: std::marker::PhantomData<F>,
 }
 
-impl FieldElement {
-    pub fn new(num: u128, prime: u128) -> Self {
+impl<F: FieldMod> FiniteField<F> {
+    pub fn new(num: impl Into<BigUint>) -> Self {
+        let num = num.into();
+        let modulus = F::modulus();
         assert!(
-            num < prime,
+            num < modulus,
             "num {} not in field range 0 to {}",
             num,
-            prime - 1
+            &modulus - 1u32
         );
-        Self { num, prime }
+        Self {
+            num,
+            _phantom: std::marker::PhantomData,
+        }
     }
 
-    // Modular exponentiation by squaring
-    // TODO: Handle negative exponents
-    pub fn exp(self, mut exponent: i128) -> Self {
-        // Handle common exponent cases
-        match exponent {
-            0 => {
-                return Self {
-                    num: 1,
-                    prime: self.prime,
-                }
-            }
-            i128::MIN..0 => unimplemented!(),
-            _ => (),
+    pub fn exp(self, exponent: impl Into<BigUint>) -> Self {
+        let exponent = exponent.into();
+        // Modular exponentiation by squaring
+        // Handle special cases first
+        if exponent == 0u32.into() {
+            return Self {
+                num: 1u32.into(),
+                _phantom: std::marker::PhantomData,
+            };
         }
 
-        match self.num {
-            0 => {
-                return Self {
-                    num: 0,
-                    prime: self.prime,
-                }
-            }
-            1 => {
-                return Self {
-                    num: self.num,
-                    prime: self.prime,
-                }
-            }
-            _ => (),
+        if self.num == 0u32.into() {
+            return Self {
+                num: 0u32.into(),
+                _phantom: std::marker::PhantomData,
+            };
         }
 
-        // Handle the positive exponent case
-        let mut x = self.num;
-        let mut y: u128 = 1;
-        while exponent > 1 {
-            if exponent % 2 == 1 {
-                // exponent is odd
-                y = (x * y) % self.prime;
-                exponent = exponent - 1;
+        if self.num == 1u32.into() {
+            return self;
+        }
+
+        let mut base = self.num;
+        let mut exp = exponent;
+        let mut result: BigUint = 1u32.into();
+        let modulus = F::modulus();
+
+        // Square and multiply algorithm
+        while exp > 0u32.into() {
+            if &exp % 2u32 == 1u32.into() {
+                result = (&result * &base) % &modulus;
             }
-            x = (x * x) % self.prime;
-            exponent = exponent / 2;
+            base = (&base * &base) % &modulus;
+            exp >>= 1;
         }
 
         Self {
-            num: (x * y) % self.prime,
-            prime: self.prime,
+            num: result,
+            _phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl ops::Add for FieldElement {
+impl<F: FieldMod> ops::Add for FiniteField<F> {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        assert_eq!(
-            self.prime, other.prime,
-            "Cannot add elements of different fields (lhs: {}, rhs: {})",
-            self.prime, other.prime
-        );
+        let modulus = F::modulus();
         Self {
-            num: (self.num + other.num) % self.prime,
-            prime: self.prime,
+            num: (self.num + other.num) % &modulus,
+            _phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl ops::Mul for FieldElement {
+impl<F: FieldMod> ops::Sub for FiniteField<F> {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        let modulus = F::modulus();
+        let mut num = self.num;
+        while num < rhs.num {
+            num += &modulus;
+        }
+        Self {
+            num: (num - rhs.num) % &modulus,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<F: FieldMod> ops::Rem for FiniteField<F> {
+    type Output = Self;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        let modulus = F::modulus();
+        Self {
+            num: (self.num % rhs.num) % &modulus,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<F: FieldMod> ops::Mul for FiniteField<F> {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self {
-        assert_eq!(
-            self.prime, other.prime,
-            "Cannot multiply elements of different fields (lhs: {}, rhs: {})",
-            self.prime, other.prime
-        );
-
+        let modulus = F::modulus();
         Self {
-            num: (self.num * other.num) % self.prime,
-            prime: self.prime,
+            num: (self.num * other.num) % &modulus,
+            _phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl ops::Div for FieldElement {
+impl<F: FieldMod> ops::Div for FiniteField<F> {
     type Output = Self;
 
     fn div(self, other: Self) -> Self {
-        assert_eq!(
-            self.prime, other.prime,
-            "Cannot multiply elements of different fields (lhs: {}, rhs: {})",
-            self.prime, other.prime
-        );
-
-        // a/b = a * b**-1
-        // By Fermat's Little Theorem, b**(p-1) = 1 for p prime
-        // b**-1 = b**-1 * 1 = b**-1 * b**(p-1) = b**(p-2)
-        // This means that for example in F_19, b**18 = 1 and b**17 = b*-1 for all b > 0
-        // a/b = a * b**17
-        let p = other.prime;
-        self * other.exp((p - 2) as i128)
+        // Using Fermat's Little Theorem:
+        // In a finite field of prime order p, for any number a:
+        // a^(p-1) ≡ 1 (mod p)
+        // Therefore: a^(p-2) is the multiplicative inverse of a
+        let exponent = F::modulus() - 2u32;
+        self * other.exp(exponent)
     }
 }
 
-impl Display for FieldElement {
+impl<F: FieldMod> Display for FiniteField<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "FieldElement<{}>({})", self.prime, self.num)
+        write!(f, "FieldElement<{}>({})", F::modulus(), self.num)
+    }
+}
+
+impl<F: FieldMod> From<u32> for FiniteField<F> {
+    fn from(value: u32) -> Self {
+        Self::new(value)
     }
 }
 
@@ -137,104 +155,103 @@ impl Display for FieldElement {
 mod tests {
     use super::*;
 
+    #[derive(Debug, Clone, PartialEq)]
+    struct Field7;
+    impl FieldMod for Field7 {
+        fn modulus() -> BigUint {
+            7u32.into()
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct Field13;
+    impl FieldMod for Field13 {
+        fn modulus() -> BigUint {
+            13u32.into()
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct Field19;
+    impl FieldMod for Field19 {
+        fn modulus() -> BigUint {
+            19u32.into()
+        }
+    }
+
     #[test]
     fn test_new_field_element() {
-        let fe = FieldElement::new(5, 7);
-        assert_eq!(fe.num, 5);
-        assert_eq!(fe.prime, 7);
+        let fe: FiniteField<Field7> = FiniteField::new(5u32);
+        assert_eq!(fe.num, BigUint::from(5u32));
     }
 
     #[test]
     #[should_panic]
     fn test_new_invalid_field_element() {
-        FieldElement::new(10, 10);
+        let _: FiniteField<Field7> = FiniteField::new(10u32);
     }
 
     #[test]
     fn test_fe_eq() {
-        let a = FieldElement::new(5, 10);
-        let b = FieldElement::new(5, 10);
+        let a: FiniteField<Field7> = FiniteField::new(5u32);
+        let b: FiniteField<Field7> = FiniteField::new(5u32);
         assert_eq!(a, b);
     }
 
     #[test]
     fn test_fe_neq() {
-        let a = FieldElement::new(5, 10);
-        let b = FieldElement::new(6, 10);
-        let c = FieldElement::new(5, 9);
+        let a: FiniteField<Field7> = FiniteField::new(5u32);
+        let b: FiniteField<Field7> = FiniteField::new(6u32);
         assert_ne!(a, b);
-        assert_ne!(a, b);
-        assert_ne!(b, c);
     }
 
     #[test]
     fn test_fe_display() {
-        let fe = FieldElement::new(4, 7);
+        let fe: FiniteField<Field7> = FiniteField::new(4u32);
         assert_eq!(format!("{}", fe), "FieldElement<7>(4)");
     }
 
     #[test]
     fn test_add() {
-        let a = FieldElement::new(4, 7);
-        let b = FieldElement::new(4, 7);
+        let a: FiniteField<Field7> = FiniteField::new(4u32);
+        let b: FiniteField<Field7> = FiniteField::new(4u32);
         let result = a + b;
-        assert_eq!(1, result.num);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_add_different_field() {
-        let a = FieldElement::new(4, 7);
-        let b = FieldElement::new(4, 8);
-        _ = a + b;
+        assert_eq!(result.num, BigUint::from(1u32));
     }
 
     #[test]
     fn test_mul() {
-        let a = FieldElement::new(4, 7);
-        let b = FieldElement::new(4, 7);
+        let a: FiniteField<Field7> = FiniteField::new(4u32);
+        let b: FiniteField<Field7> = FiniteField::new(4u32);
         let result = a * b;
-        assert_eq!(2, result.num);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_mul_different_field() {
-        let a = FieldElement::new(4, 7);
-        let b = FieldElement::new(4, 8);
-        _ = a + b;
+        assert_eq!(result.num, BigUint::from(2u32));
     }
 
     #[test]
     fn test_exp() {
-        let a = FieldElement::new(3, 13);
-        let result = FieldElement::new(1, 13);
-        assert_eq!(result, a.exp(3));
+        let a: FiniteField<Field13> = FiniteField::new(3u32);
+        let result: FiniteField<Field13> = FiniteField::new(1u32);
+        assert_eq!(result, a.exp(3u32));
 
-        let a = FieldElement::new(445, 1234);
-        let exponent = 1 << 127 - 63;
-        let result = FieldElement::new(703, 1234);
-        assert_eq!(result, a.exp(exponent));
-
-        assert_eq!(FieldElement::new(1, 13), FieldElement::new(3, 13).exp(0));
-        assert_eq!(FieldElement::new(1, 13), FieldElement::new(0, 13).exp(0));
-        assert_eq!(FieldElement::new(0, 13), FieldElement::new(0, 13).exp(3));
+        assert_eq!(
+            FiniteField::<Field13>::new(1u32),
+            FiniteField::<Field13>::new(3u32).exp(0u32)
+        );
+        assert_eq!(
+            FiniteField::<Field13>::new(1u32),
+            FiniteField::<Field13>::new(0u32).exp(0u32)
+        );
+        assert_eq!(
+            FiniteField::<Field13>::new(0u32),
+            FiniteField::<Field13>::new(0u32).exp(3u32)
+        );
     }
 
     #[test]
     fn test_div() {
-        let a = FieldElement::new(2, 19);
-        let b = FieldElement::new(7, 19);
-        let result = FieldElement::new(3, 19);
-
+        let a: FiniteField<Field19> = FiniteField::new(2u32);
+        let b: FiniteField<Field19> = FiniteField::new(7u32);
+        let result: FiniteField<Field19> = FiniteField::new(3u32);
         assert_eq!(a / b, result);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_div_different_field() {
-        let a = FieldElement::new(2, 19);
-        let b = FieldElement::new(7, 69);
-        _ = a + b;
     }
 }
