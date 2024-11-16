@@ -45,7 +45,7 @@ pub struct EllipticCurve<T> {
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub struct ECurvePoint<'a, T> {
     curve: &'a EllipticCurve<T>,
-    p: PointType<T>,
+    pub p: PointType<T>,
 }
 
 impl<'a, T> EllipticCurve<T>
