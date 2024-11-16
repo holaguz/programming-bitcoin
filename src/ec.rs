@@ -160,7 +160,7 @@ where
 impl<'a, T, U> Mul<U> for ECurvePoint<'a, T>
 where
     T: FieldArithmetic,
-    U: Into<u32>,
+    U: Into<BigUint>,
 {
     type Output = ECurvePoint<'a, T>;
 
@@ -174,8 +174,8 @@ where
                 let mut current = self;
                 let mut i = n;
 
-                while i > 0 {
-                    if i & 1 == 1 {
+                while &i > &0u32.into() {
+                    if &i % 2u32 == 1u32.into() {
                         result = result + current.clone();
                     }
                     current = current.clone() + current.clone();
