@@ -157,6 +157,36 @@ where
     }
 }
 
+impl<'a, T, U> Mul<U> for ECurvePoint<'a, T>
+where
+    T: FieldArithmetic,
+    U: Into<u32>,
+{
+    type Output = ECurvePoint<'a, T>;
+
+    fn mul(self, rhs: U) -> Self::Output {
+        let n = rhs.into();
+
+        match self.p {
+            PointType::Infinity | PointType::Invalid => self,
+            PointType::Point(_) => {
+                let mut result = self.curve.infinity();
+                let mut current = self;
+                let mut i = n;
+
+                while i > 0 {
+                    if i & 1 == 1 {
+                        result = result + current.clone();
+                    }
+                    current = current.clone() + current.clone();
+                    i >>= 1;
+                }
+                result
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,6 +241,20 @@ mod tests {
 
             assert_eq!(a.clone() + b.clone(), result);
             assert_eq!(b + a, result);
+        }
+
+        #[test]
+        fn test_mul() {
+            let c = test_curve();
+            let a = c.point_at(47u32, 71u32);
+            let result = c.point_at(36u32, 111u32);
+
+            // let double = a.clone() + a.clone();
+            // dbg!(&double);
+            // assert_eq!(result, double);
+            let double = a * 2u32;
+            dbg!(&result);
+            assert_eq!(result, double);
         }
     }
 }
