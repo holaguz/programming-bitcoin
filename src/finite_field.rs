@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use std::fmt::Display;
-use std::ops;
+use std::ops::{Add, Div, Mul, Sub};
 
 use crate::ec::FieldArithmetic;
 use num_bigint::BigUint;
@@ -32,7 +32,7 @@ impl<F: FieldMod> FiniteField<F> {
         }
     }
 
-    pub fn exp(self, exponent: impl Into<BigUint>) -> Self {
+    pub fn exp(&self, exponent: impl Into<BigUint>) -> Self {
         let exponent = exponent.into();
         // Modular exponentiation by squaring
         // Handle special cases first
@@ -51,10 +51,10 @@ impl<F: FieldMod> FiniteField<F> {
         }
 
         if self.num == 1u32.into() {
-            return self;
+            return self.clone();
         }
 
-        let mut base = self.num;
+        let mut base = self.num.clone();
         let mut exp = exponent;
         let mut result: BigUint = 1u32.into();
         let modulus = F::modulus();
@@ -68,77 +68,173 @@ impl<F: FieldMod> FiniteField<F> {
             exp >>= 1;
         }
 
-        Self {
-            num: result,
-            _phantom: std::marker::PhantomData,
-        }
+        Self::new(result)
     }
 }
 
-impl<F: FieldMod> ops::Add for FiniteField<F> {
-    type Output = Self;
+// &T + &T
+impl<F: FieldMod> Add for &FiniteField<F> {
+    type Output = FiniteField<F>;
 
-    fn add(self, other: Self) -> Self {
+    fn add(self, other: Self) -> Self::Output {
         let modulus = F::modulus();
-        Self {
-            num: (self.num + other.num) % &modulus,
-            _phantom: std::marker::PhantomData,
-        }
+        FiniteField::new((&self.num + &other.num) % &modulus)
     }
 }
 
-impl<F: FieldMod> ops::Sub for FiniteField<F> {
-    type Output = Self;
+// T + T
+impl<F: FieldMod> Add for FiniteField<F> {
+    type Output = FiniteField<F>;
+
+    fn add(self, other: Self) -> Self::Output {
+        &self + &other
+    }
+}
+
+// T + &T
+impl<F: FieldMod> Add<&FiniteField<F>> for FiniteField<F> {
+    type Output = FiniteField<F>;
+
+    fn add(self, other: &Self) -> Self::Output {
+        &self + other
+    }
+}
+
+// &T + T
+impl<F: FieldMod> Add<FiniteField<F>> for &FiniteField<F> {
+    type Output = FiniteField<F>;
+
+    fn add(self, other: FiniteField<F>) -> Self::Output {
+        self + &other
+    }
+}
+
+// &T - &T
+impl<F: FieldMod> Sub for &FiniteField<F> {
+    type Output = FiniteField<F>;
+
     fn sub(self, rhs: Self) -> Self::Output {
         let modulus = F::modulus();
-        let mut num = self.num;
-        while num < rhs.num {
-            num += &modulus;
-        }
-        Self {
-            num: (num - rhs.num) % &modulus,
-            _phantom: std::marker::PhantomData,
-        }
+        FiniteField::new(((&self.num + &modulus) - &rhs.num) % &modulus)
     }
 }
 
-impl<F: FieldMod> ops::Rem for FiniteField<F> {
-    type Output = Self;
+// T - T
+impl<F: FieldMod> Sub for FiniteField<F> {
+    type Output = FiniteField<F>;
 
-    fn rem(self, rhs: Self) -> Self::Output {
+    fn sub(self, other: Self) -> Self::Output {
+        &self - &other
+    }
+}
+
+// T - &T
+impl<F: FieldMod> Sub<&FiniteField<F>> for FiniteField<F> {
+    type Output = FiniteField<F>;
+
+    fn sub(self, other: &Self) -> Self::Output {
+        &self - other
+    }
+}
+
+// &T + T
+impl<F: FieldMod> Sub<FiniteField<F>> for &FiniteField<F> {
+    type Output = FiniteField<F>;
+
+    fn sub(self, other: FiniteField<F>) -> Self::Output {
+        self - &other
+    }
+}
+
+// UNUSED
+// impl<F: FieldMod> Rem for FiniteField<F> {
+//     type Output = Self;
+//
+//     fn rem(self, rhs: Self) -> Self::Output {
+//         let modulus = F::modulus();
+//         Self {
+//             num: (self.num % rhs.num) % &modulus,
+//             _phantom: std::marker::PhantomData,
+//         }
+//     }
+// }
+
+impl<F: FieldMod> Mul for &FiniteField<F> {
+    type Output = FiniteField<F>;
+
+    fn mul(self, other: Self) -> Self::Output {
         let modulus = F::modulus();
-        Self {
-            num: (self.num % rhs.num) % &modulus,
-            _phantom: std::marker::PhantomData,
-        }
+        FiniteField::new((&self.num * &other.num) % &modulus)
     }
 }
 
-impl<F: FieldMod> ops::Mul for FiniteField<F> {
-    type Output = Self;
+// T * T
+impl<F: FieldMod> Mul for FiniteField<F> {
+    type Output = FiniteField<F>;
 
-    fn mul(self, other: Self) -> Self {
-        let modulus = F::modulus();
-        Self {
-            num: (self.num * other.num) % &modulus,
-            _phantom: std::marker::PhantomData,
-        }
+    fn mul(self, other: Self) -> Self::Output {
+        &self * &other
     }
 }
 
-impl<F: FieldMod> ops::Div for FiniteField<F> {
-    type Output = Self;
+// T * &T
+impl<F: FieldMod> Mul<&FiniteField<F>> for FiniteField<F> {
+    type Output = FiniteField<F>;
 
-    fn div(self, other: Self) -> Self {
+    fn mul(self, other: &Self) -> Self::Output {
+        &self * other
+    }
+}
+
+// &T * T
+impl<F: FieldMod> Mul<FiniteField<F>> for &FiniteField<F> {
+    type Output = FiniteField<F>;
+
+    fn mul(self, other: FiniteField<F>) -> Self::Output {
+        self * &other
+    }
+}
+
+impl<F: FieldMod> Div for &FiniteField<F> {
+    type Output = FiniteField<F>;
+
+    fn div(self, other: Self) -> Self::Output {
         // Using Fermat's Little Theorem:
         // In a finite field of prime order p, for any number a:
         // a^(p-1) ≡ 1 (mod p)
         // Therefore: a^(p-2) is the multiplicative inverse of a
         let exponent = F::modulus() - 2u32;
-        self * other.exp(exponent)
+        let inv = other.exp(exponent);
+        self * inv
     }
 }
 
+// T / T
+impl<F: FieldMod> Div for FiniteField<F> {
+    type Output = FiniteField<F>;
+
+    fn div(self, other: Self) -> Self::Output {
+        &self / &other
+    }
+}
+
+// T / &T
+impl<F: FieldMod> Div<&FiniteField<F>> for FiniteField<F> {
+    type Output = FiniteField<F>;
+
+    fn div(self, other: &Self) -> Self::Output {
+        &self / other
+    }
+}
+
+// &T / T
+impl<F: FieldMod> Div<FiniteField<F>> for &FiniteField<F> {
+    type Output = FiniteField<F>;
+
+    fn div(self, other: FiniteField<F>) -> Self::Output {
+        self / &other
+    }
+}
 impl<F: FieldMod> Display for FiniteField<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "FieldElement<{}>({})", F::modulus(), self.num)
@@ -212,19 +308,83 @@ mod tests {
     }
 
     #[test]
-    fn test_add() {
+    fn test_add_ref() {
         let a: FiniteField<Field7> = FiniteField::new(4u32);
         let b: FiniteField<Field7> = FiniteField::new(4u32);
-        let result = a + b;
+        let result = &a + &b;
         assert_eq!(result.num, BigUint::from(1u32));
     }
 
     #[test]
-    fn test_mul() {
+    fn test_add_other() {
         let a: FiniteField<Field7> = FiniteField::new(4u32);
         let b: FiniteField<Field7> = FiniteField::new(4u32);
-        let result = a * b;
+        let exp: FiniteField<Field7> = &a + &b;
+
+        let res = &a + b;
+        assert_eq!(res.num, exp.num);
+
+        let b: FiniteField<Field7> = FiniteField::new(4u32);
+        let res = a + &b;
+        assert_eq!(res.num, exp.num);
+
+        let a: FiniteField<Field7> = FiniteField::new(4u32);
+        let b: FiniteField<Field7> = FiniteField::new(4u32);
+        let res = a + b;
+        assert_eq!(res.num, exp.num);
+    }
+
+    #[test]
+    fn test_sub_ref() {
+        let a: FiniteField<Field7> = FiniteField::new(4u32);
+        let b: FiniteField<Field7> = FiniteField::new(6u32);
+        let result = &a - &b;
+        assert_eq!(result.num, BigUint::from(5u32));
+    }
+
+    #[test]
+    fn test_sub_other() {
+        let a: FiniteField<Field7> = FiniteField::new(4u32);
+        let b: FiniteField<Field7> = FiniteField::new(6u32);
+        let exp: FiniteField<Field7> = &a - &b;
+
+        let res = &a - b;
+        assert_eq!(res.num, exp.num);
+
+        let b: FiniteField<Field7> = FiniteField::new(6u32);
+        let res = a - &b;
+        assert_eq!(res.num, exp.num);
+
+        let a: FiniteField<Field7> = FiniteField::new(4u32);
+        let b: FiniteField<Field7> = FiniteField::new(6u32);
+        let res = a - b;
+        assert_eq!(res.num, exp.num);
+    }
+
+    #[test]
+    fn test_mul_ref() {
+        let a: FiniteField<Field7> = FiniteField::new(4u32);
+        let b: FiniteField<Field7> = FiniteField::new(4u32);
+        let result = &a * &b;
         assert_eq!(result.num, BigUint::from(2u32));
+    }
+
+    #[test]
+    fn test_mul_other() {
+        let a: FiniteField<Field7> = FiniteField::new(4u32);
+        let b: FiniteField<Field7> = FiniteField::new(4u32);
+        let exp = &a * &b;
+
+        let res = &a * b;
+        assert_eq!(res.num, exp.num);
+
+        let b: FiniteField<Field7> = FiniteField::new(4u32);
+        let res = a * &b;
+        assert_eq!(res.num, exp.num);
+
+        let a: FiniteField<Field7> = FiniteField::new(4u32);
+        let res = a * b;
+        assert_eq!(res.num, exp.num);
     }
 
     #[test]
@@ -248,10 +408,28 @@ mod tests {
     }
 
     #[test]
-    fn test_div() {
+    fn test_div_ref() {
         let a: FiniteField<Field19> = FiniteField::new(2u32);
         let b: FiniteField<Field19> = FiniteField::new(7u32);
         let result: FiniteField<Field19> = FiniteField::new(3u32);
-        assert_eq!(a / b, result);
+        assert_eq!(&a / &b, result);
+    }
+
+    #[test]
+    fn test_div_other() {
+        let a: FiniteField<Field19> = FiniteField::new(2u32);
+        let b: FiniteField<Field19> = FiniteField::new(7u32);
+        let exp = &a / &b;
+
+        let res = &a / b;
+        assert_eq!(res.num, exp.num);
+
+        let b: FiniteField<Field19> = FiniteField::new(7u32);
+        let res = a / &b;
+        assert_eq!(res.num, exp.num);
+
+        let a: FiniteField<Field19> = FiniteField::new(2u32);
+        let res = a / b;
+        assert_eq!(res.num, exp.num);
     }
 }

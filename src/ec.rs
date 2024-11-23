@@ -8,6 +8,7 @@ pub trait FieldArithmetic:
     Add<Output = Self>
     + Sub<Output = Self>
     + Mul<Output = Self>
+    // + for<'a> Mul<&'a Self, Output = Self>
     + Div<Output = Self>
     // + Rem<Output = Self>
     + Clone
@@ -88,7 +89,7 @@ where
     }
 }
 
-impl<'a, T> Add for ECurvePoint<'a, T>
+impl<'a, T> Add for &ECurvePoint<'a, T>
 where
     T: FieldArithmetic,
 {
@@ -104,7 +105,7 @@ where
         let (p, rhs) = match (&self.p, &rhs.p) {
             // Infinity is the additive identity
             (PointType::Infinity, _) => return rhs.clone(),
-            (_, PointType::Infinity) => return self,
+            (_, PointType::Infinity) => return self.clone(),
 
             // Invalid + anything = Invalid
             (PointType::Invalid, _) | (_, PointType::Invalid) => {
@@ -157,33 +158,86 @@ where
     }
 }
 
-impl<'a, T, U> Mul<U> for ECurvePoint<'a, T>
+// T + T
+impl<'a, T> Add for ECurvePoint<'a, T>
 where
     T: FieldArithmetic,
-    U: Into<BigUint>,
+{
+    type Output = ECurvePoint<'a, T>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        return &self + &rhs;
+    }
+}
+
+// T + &T
+impl<'a, T> Add<&ECurvePoint<'a, T>> for ECurvePoint<'a, T>
+where
+    T: FieldArithmetic,
+{
+    type Output = ECurvePoint<'a, T>;
+
+    fn add(self, rhs: &Self) -> Self::Output {
+        return &self + rhs;
+    }
+}
+
+// &T + T
+impl<'a, T> Add<ECurvePoint<'a, T>> for &ECurvePoint<'a, T>
+where
+    T: FieldArithmetic,
+{
+    type Output = ECurvePoint<'a, T>;
+
+    fn add(self, rhs: ECurvePoint<'a, T>) -> Self::Output {
+        return self + &rhs;
+    }
+}
+
+// Base implementation: &T * U
+impl<'a, T, U> Mul<U> for &ECurvePoint<'a, T>
+where
+    T: FieldArithmetic,
+    U: Into<BigUint> + Clone,
 {
     type Output = ECurvePoint<'a, T>;
 
     fn mul(self, rhs: U) -> Self::Output {
-        let n = rhs.into();
+        let n: BigUint = rhs.into();
 
         match self.p {
-            PointType::Infinity | PointType::Invalid => self,
+            PointType::Infinity | PointType::Invalid => self.clone(),
             PointType::Point(_) => {
                 let mut result = self.curve.infinity();
-                let mut current = self;
+                let mut current = self.clone();
                 let mut i = n;
+                let zero: BigUint = 0u32.into();
+                let one: BigUint = 1u32.into();
+                let two: BigUint = 2u32.into();
 
-                while &i > &0u32.into() {
-                    if &i % 2u32 == 1u32.into() {
-                        result = result + current.clone();
+                while i > zero {
+                    if &i % &two == one {
+                        result = &result + &current;
                     }
-                    current = current.clone() + current.clone();
+                    current = &current + &current;
                     i >>= 1;
                 }
                 result
             }
         }
+    }
+}
+
+// T * U
+impl<'a, T, U> Mul<U> for ECurvePoint<'a, T>
+where
+    T: FieldArithmetic,
+    U: Into<BigUint> + Clone,
+{
+    type Output = ECurvePoint<'a, T>;
+
+    fn mul(self, rhs: U) -> Self::Output {
+        &self * rhs
     }
 }
 
@@ -244,6 +298,30 @@ mod tests {
         }
 
         #[test]
+        fn test_add_ref() {
+            let c = test_curve();
+            let a = c.point_at(192u32, 105u32);
+            let b = c.point_at(17u32, 56u32);
+
+            let result = c.point_at(170u32, 142u32);
+            let sum = &a + &b;
+
+            assert_eq!(sum, result);
+            assert_eq!(sum, result);
+        }
+
+        #[test]
+        fn test_add_inv() {
+            let c = test_curve();
+            let a = c.point_at(192u32, 105u32);
+            let b = c.point_at(17u32, 56u32);
+
+            _ = a + &b;
+            let a = c.point_at(192u32, 105u32);
+            _ = &a + b;
+        }
+
+        #[test]
         fn test_mul() {
             let c = test_curve();
             let a = c.point_at(47u32, 71u32);
@@ -252,7 +330,7 @@ mod tests {
             // let double = a.clone() + a.clone();
             // dbg!(&double);
             // assert_eq!(result, double);
-            let double = a * 2u32;
+            let double = &a * 2u32;
             dbg!(&result);
             assert_eq!(result, double);
         }
